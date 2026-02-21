@@ -1,4 +1,5 @@
 import Config
+config :task_pipeline, Oban, testing: :manual
 
 # Configure your database
 #

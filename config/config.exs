@@ -7,6 +7,12 @@
 # General application configuration
 import Config
 
+config :task_pipeline, Oban,
+  engine: Oban.Engines.Basic,
+  notifier: Oban.Notifiers.Postgres,
+  queues: [default: 10],
+  repo: TaskPipeline.Repo
+
 config :task_pipeline,
   ecto_repos: [TaskPipeline.Repo],
   generators: [timestamp_type: :utc_datetime]

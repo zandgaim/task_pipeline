@@ -11,6 +11,7 @@ defmodule TaskPipeline.Application do
       TaskPipelineWeb.Telemetry,
       TaskPipeline.Repo,
       {DNSCluster, query: Application.get_env(:task_pipeline, :dns_cluster_query) || :ignore},
+      {Oban, Application.fetch_env!(:task_pipeline, Oban)},
       {Phoenix.PubSub, name: TaskPipeline.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: TaskPipeline.Finch},
