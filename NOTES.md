@@ -58,8 +58,9 @@ Used `Repo.update_all` with a status check to ensure only one worker can success
 
 ---
 
-## 5. Testing Strategy
+## 5. Testing
 Besides covering the API, controllers, changesets, contexts, and Oban logic, the `ExCoveralls` tool was added to track test coverage effectively (`mix coveralls.html`).
+Additionally, Oban Web was added to verify the end-to-end task lifecycle.
 
 ---
 
