@@ -10,8 +10,20 @@ import Config
 config :task_pipeline, Oban,
   engine: Oban.Engines.Basic,
   notifier: Oban.Notifiers.Postgres,
-  queues: [tasks: 10],
-  repo: TaskPipeline.Repo
+  queues: [
+    # Dedicate the most workers to critical and high queues to prevent starvation
+    critical: 15,
+    high: 15,
+    normal: 15,
+    low: 20
+  ],
+  repo: TaskPipeline.Repo,
+  plugins: [
+    # Aggressive pruning is mandatory at 10k tasks/min scale
+    {Oban.Plugins.Pruner, max_age: 60, limit: 10_000},
+    # Optional: Stager to handle scheduled retries faster
+    {Oban.Plugins.Stager, interval: 1_000}
+  ]
 
 config :task_pipeline,
   ecto_repos: [TaskPipeline.Repo],

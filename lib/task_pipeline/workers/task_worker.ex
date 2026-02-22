@@ -1,5 +1,15 @@
 defmodule TaskPipeline.Workers.TaskWorker do
-  use Oban.Worker, queue: :tasks
+  use Oban.Worker,
+    # Default queue, overridden dynamically upon enqueue
+    queue: :normal,
+    # We will dynamically override this per-job based on the Task model
+    max_attempts: 3,
+    unique: [
+      # Prevents the exact same task from being enqueued concurrently
+      fields: [:args],
+      keys: [:task_id],
+      states: [:available, :scheduled, :executing]
+    ]
 
   alias TaskPipeline.Tasks
 
@@ -10,7 +20,7 @@ defmodule TaskPipeline.Workers.TaskWorker do
         sleep_duration(task.priority) |> Process.sleep()
 
         if should_fail?() do
-          Tasks.mark_task_failed(task, attempt, "Simulated processing error")
+          Tasks.mark_task_failed(task, attempt)
           {:error, "Simulated processing error"}
         else
           Tasks.mark_task_completed(task)
