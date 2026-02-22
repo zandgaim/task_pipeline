@@ -22,10 +22,12 @@ defmodule TaskPipelineWeb.Router do
     get "/", PageController, :home
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", TaskPipelineWeb do
-  #   pipe_through :api
-  # end
+  scope "/api", TaskPipelineWeb do
+    pipe_through :api
+
+    get "/tasks/summary", TaskController, :summary
+    resources "/tasks", TaskController, only: [:create, :index, :show]
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:task_pipeline, :dev_routes) do

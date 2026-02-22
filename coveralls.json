@@ -1,0 +1,6 @@
+{
+  "skip_files": [
+    "lib/task_pipeline_web/components/core_components.ex",
+    "test/support/"
+  ]
+}

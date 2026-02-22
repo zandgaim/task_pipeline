@@ -8,7 +8,7 @@ config :task_pipeline, Oban, testing: :manual
 # Run `mix help test` for more information.
 config :task_pipeline, TaskPipeline.Repo,
   username: "postgres",
-  password: "postgres",
+  password: "pass",
   hostname: "localhost",
   database: "task_pipeline_test#{System.get_env("MIX_TEST_PARTITION")}",
   pool: Ecto.Adapters.SQL.Sandbox,

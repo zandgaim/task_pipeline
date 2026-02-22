@@ -13,6 +13,7 @@ defmodule TaskPipeline.Application do
       {DNSCluster, query: Application.get_env(:task_pipeline, :dns_cluster_query) || :ignore},
       {Oban, Application.fetch_env!(:task_pipeline, Oban)},
       {Phoenix.PubSub, name: TaskPipeline.PubSub},
+      TaskPipeline.Metrics.SummaryCache,
       # Start the Finch HTTP client for sending emails
       {Finch, name: TaskPipeline.Finch},
       # Start a worker by calling: TaskPipeline.Worker.start_link(arg)

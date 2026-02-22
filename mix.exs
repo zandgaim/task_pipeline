@@ -9,7 +9,9 @@ defmodule TaskPipeline.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
-      deps: deps()
+      deps: deps(),
+      test_coverage: [tool: ExCoveralls],
+      preferred_cli_env: ["coveralls.html": :test]
     ]
   end
 
@@ -60,7 +62,9 @@ defmodule TaskPipeline.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
-      {:igniter, "~> 0.5", only: [:dev]}
+      {:igniter, "~> 0.5", only: [:dev]},
+      {:excoveralls, "~> 0.18", only: [:dev, :test], runtime: false},
+      {:mock, "~> 0.3.8", only: :test}
     ]
   end
 

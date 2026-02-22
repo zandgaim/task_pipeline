@@ -10,7 +10,7 @@ import Config
 config :task_pipeline, Oban,
   engine: Oban.Engines.Basic,
   notifier: Oban.Notifiers.Postgres,
-  queues: [default: 10],
+  queues: [tasks: 10],
   repo: TaskPipeline.Repo
 
 config :task_pipeline,

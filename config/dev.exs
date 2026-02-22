@@ -3,7 +3,7 @@ import Config
 # Configure your database
 config :task_pipeline, TaskPipeline.Repo,
   username: "postgres",
-  password: "postgres",
+  password: "pass",
   hostname: "localhost",
   database: "task_pipeline_dev",
   stacktrace: true,
