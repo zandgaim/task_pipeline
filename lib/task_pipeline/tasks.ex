@@ -97,16 +97,16 @@ defmodule TaskPipeline.Tasks do
   end
 
   def mark_task_completed(task) do
-    Ecto.Multi.new()
-    |> Ecto.Multi.update(:task, Ecto.Changeset.change(task, status: :completed))
-    |> Repo.transaction()
+    task
+    |> Ecto.Changeset.change(status: :completed)
+    |> Repo.update()
   end
 
   def mark_task_failed(task, current_attempt) do
     next_status = if current_attempt >= task.max_attempts, do: :failed, else: :queued
 
-    Ecto.Multi.new()
-    |> Ecto.Multi.update(:task, Ecto.Changeset.change(task, status: next_status))
-    |> Repo.transaction()
+    task
+    |> Ecto.Changeset.change(status: next_status)
+    |> Repo.update()
   end
 end
