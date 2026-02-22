@@ -3,77 +3,199 @@
 ## 1. Job Queuing (Oban)
 
 ### Queue-per-type vs. Single Queue Trade-offs
-* **Single Queue:** A sudden influx of 50,000 slow, low-priority tasks will occupy all worker processes, starving critical tasks of resources.
-* **Queue-per-priority:** Dedicates specific queues to priorities (e.g., critical, high, default). This guarantees that critical tasks always have dedicated worker capacity, even if the system is flooded with low-priority jobs.
-* **Queue-per-type:** Ideal if tasks have vastly different resource profiles (e.g., imports require heavy DB I/O, while reports require heavy CPU).
 
-**Decision:** Queue-per-priority is the better design choice to satisfy strict execution order constraints. Queue concurrency limits were set predicting that low-priority jobs will occur slightly more often: `critical: 15`, `high: 15`, `normal: 15`, `low: 20`.
+* **Single Queue:** A sudden influx of 50,000 slow, low-priority tasks can occupy all worker processes, starving critical tasks of resources.
+* **Queue-per-priority:** Dedicated queues per priority level (e.g., critical, high, normal, low) guarantee reserved worker capacity for important jobs even during heavy low-priority load.
+* **Queue-per-type:** Useful when job categories have drastically different resource profiles (e.g., imports are DB I/O heavy, reports are CPU intensive).
+
+**Decision:** Queue-per-priority best satisfies strict execution order guarantees and predictable resource allocation.
+
+Queue concurrency limits were configured assuming slightly higher frequency of low-priority jobs:
+critical: 15
+high: 15
+normal: 15
+low: 20
+
+---
 
 ### Pruning Strategy
-At 10,000 tasks/minute, we are inserting approximately 14.4 million rows into the `oban_jobs` table every day. If we do not prune aggressively, Postgres index sizes will bloat, sequential scans will become fatal, and performance will collapse. Since our `tasks` table acts as the permanent business record, Oban jobs should be pruned immediately or within a minute of completion.
 
-**Decision:** Implemented a `max_age` of 60 seconds with a limit of 10,000 jobs. A unique constraint on `task_id` was also considered to prevent the exact same task from being enqueued concurrently.
+At 10,000 tasks per minute, approximately **14.4 million rows** are inserted into the `oban_jobs` table daily.
+
+Without aggressive pruning:
+
+* Postgres indexes will bloat.
+* Sequential scans become increasingly expensive.
+* Overall database performance will degrade significantly.
+
+Since the `tasks` table serves as the permanent business record, Oban jobs should remain short-lived operational metadata.
+
+**Decision:**
+
+* `max_age`: 60 seconds.
+* pruning `limit`: 10,000 jobs.
+
+Additionally, a unique constraint on `task_id` was considered to prevent concurrent enqueueing of identical tasks.
 
 ---
 
 ## 2. Attempt Tracking
 
-### `task_attempts` Table vs. Oban Metrics
-At a scale of 10,000 tasks per minute, a dedicated `task_attempts` table will grow at an aggressive rate of 14.4+ million rows per day. Since 20% of tasks are designed to fail and trigger retries, the actual row count will likely exceed 18 million rows daily. 
+### `task_attempts` Table vs. Oban Telemetry Metrics
 
-* **DB Query Latency:** Querying a table with millions of rows involves disk I/O and CPU overhead that scales with the data size, even with indexing.
-* **GenServer/ETS:** By using a GenServer that reacts to `[:oban, :job, :*]` telemetry spans, we shift the calculation cost to the exact moment the event happens (a "push" model).
-* **Speed:** Updates to the GenServer state and ETS table happen in microseconds (memory access) rather than milliseconds (disk/DB access).
-* **Scalability:** The summary endpoint performs an O(1) read from ETS, meaning the API response time remains constant regardless of whether the database contains 1,000 or 100,000,000 tasks.
+At a load of 10,000 tasks per minute, a dedicated `task_attempts` table would grow aggressively:
+
+* ≈14.4 million rows/day baseline.
+* With ~20% designed failures triggering retries, expected growth exceeds **18 million rows/day**.
+
+This introduces multiple problems:
+
+* **DB Query Latency:** Even indexed queries incur increasing disk I/O and CPU overhead as datasets grow.
+* **Storage Growth:** Rapid table and index expansion increases maintenance costs.
+
+Instead, a push-based in-memory aggregation model was chosen.
+
+* **Telemetry + GenServer + ETS:**
+  * A GenServer subscribes to `[:oban, :job, :*]` telemetry spans.
+  * Calculations occur at event time rather than query time.
+  * ETS provides fast shared-memory reads.
+
+Advantages:
+
+* **Speed:** Memory updates occur in microseconds versus millisecond-scale DB access.
+* **Scalability:** The summary endpoint performs O(1) ETS reads, keeping response time constant regardless of dataset size.
+
+---
 
 ### Individual Attempt Tracking
-**Current Implementation:** Individual attempts are partially tracked via the `updated_at` timestamp on the Task record, which reflects the most recent state change. I implemented a GenServer subscribed to Oban telemetry spans. The GenServer initializes state from the database and updates state on every span update. Storage is handled via ETS with `read_concurrency: true`, providing O(1) reads while serializing state updates through a single process to avoid race conditions.
 
-**Planned Improvement:**
-* Periodic state overrides from the DB (e.g., every 30 minutes) for cache invalidation.
-* Measuring job execution by wrapping the job in a `:timer.tc` function and storing the average time in the cache manager by queue type.
-* Using an embedded JSONB array on the `tasks` table to store attempt metadata (timestamp, error message, and execution duration). Storing attempts directly on the task record keeps the data localized and avoids expensive joins during the `GET /api/tasks/:id` lookup.
+#### Current Implementation
+
+Individual attempts are partially reflected via the `updated_at` timestamp on the Task record.
+
+A GenServer:
+
+* Initializes state from the database during startup.
+* Subscribes to Oban telemetry spans.
+* Updates state on every job lifecycle event.
+
+Storage is handled via ETS with: read_concurrency: true
+
+
+This provides:
+
+* O(1) concurrent reads.
+* Serialized updates through a single process, preventing race conditions.
+
+---
+
+### Planned Improvements
+
+* Periodic DB state reconciliation (e.g., every 30 minutes) for cache invalidation.
+* Measuring execution duration using `:timer.tc` and storing queue-type averages inside the cache manager.
+* Using an embedded JSONB array on the `tasks` table to store attempt metadata:
+
+  * timestamp
+  * error message
+  * execution duration
+
+Localizing attempt history inside the task record avoids expensive joins during `GET /api/tasks/:id`.
 
 ---
 
 ## 3. Database
 
 ### Indexing for 10k/min Load
-* **Partial Indexing:** Created an index on `status` and `inserted_at` filtered specifically for `queued` and `processing` states. This keeps the index footprint small and highly performant as the table accumulates millions of "completed" rows.
-* **Composite Index:** Implemented a composite index on `(priority, inserted_at DESC)` to satisfy the required API sort order directly at the storage layer.
+
+* **Partial Indexing:** Index on `status` and `inserted_at`, filtered only for `queued` and `processing`.
+
+This keeps the index small and performant as millions of completed records accumulate.
+
+* **Composite Index:** `(priority, inserted_at DESC)`.
+
+This satisfies API sorting requirements directly at the storage layer.
+
+---
 
 ### Concurrency & Integrity
-Used `Repo.update_all` with a status check to ensure only one worker can successfully transition a task to `processing`. This prevents race conditions at high throughput.
 
-**Planned Improvement:** If tasks heavily depend on each other, I would consider Ecto locks when performing the job instead of a simple status check, combined with Oban rescheduling (using an exponential backoff strategy in the case of long DB locks).
+`Repo.update_all` with a status guard ensures only one worker transitions a task into `processing`.
+
+This prevents race conditions under high throughput.
+
+---
+
+### Planned Improvement
+
+If strong task interdependencies appear:
+
+* Introduce Ecto locks during execution.
+* Combine locking with Oban rescheduling.
+* Apply exponential backoff when long DB locks occur.
 
 ---
 
 ## 4. Supervision Tree & Fault Tolerance
 
-* **Crash Recovery:** If `SummaryCache` crashes, it is restarted by the `TaskPipeline.Supervisor`. Upon initialization, it executes a "cold boot" query against the database to recalculate the current status counts. This ensures the cache remains eventually consistent even after a process failure.
-* **In-flight Tasks:** Because Oban is backed by Postgres, any in-flight tasks during a system-wide crash are preserved in the DB. They will be retried based on their specific Oban configuration once the node recovers.
+* **Crash Recovery:** If `SummaryCache` crashes, it is restarted by `TaskPipeline.Supervisor`.
 
-**Future Architectural Changes:** To further improve fault tolerance, I would move the `SummaryCache` and other custom logic into a dedicated Sub-Supervisor. This isolates custom business logic failures from core infrastructure.
+During initialization:
+
+* A cold-boot database query recalculates status counts.
+
+This ensures eventual cache consistency after failures.
+
+---
+
+### In-flight Tasks
+
+Because Oban persists jobs in Postgres:
+
+* Tasks running during system-wide crashes remain stored safely.
+* Jobs retry automatically according to Oban configuration once nodes recover.
+
+---
+
+### Future Architectural Changes
+
+To further isolate failures:
+
+* Move `SummaryCache` and other custom logic into a dedicated Sub-Supervisor.
+
+This prevents business logic crashes from affecting core infrastructure.
 
 ---
 
 ## 5. Testing
-Besides covering the API, controllers, changesets, contexts, and Oban logic, the `ExCoveralls` tool was added to track test coverage effectively (`mix coveralls.html`).
-Additionally, Oban Web was added to verify the end-to-end task lifecycle.
+
+Testing coverage includes:
+
+* API endpoints.
+* Controllers.
+* Contexts.
+* Changesets.
+* Oban job logic.
+
+`ExCoveralls` was added for measurable coverage tracking: `mix coveralls.html`
+
+Additionally, Oban Web was introduced for validating the end-to-end task lifecycle.
 
 ---
 
 ## 6. Time Management & Trade-offs (Hours vs. a Week)
 
 ### What Was Built Today
-* A hardened, transactionally safe task pipeline using `Ecto.Multi` and Oban.
-* High-performance metrics tracking using Telemetry and ETS to bypass database bottlenecks.
-* A production-ready database schema with partial and composite indexing.
+
+* Transactionally safe task pipeline using `Ecto.Multi` and Oban.
+* High-performance telemetry-driven metrics using ETS.
+* Production-ready schema with partial and composite indexing.
+
+---
 
 ### What I Would Build Given a Full Week
-* **Advanced Pagination:** Implement keyset (cursor-based) pagination for the `GET /api/tasks` endpoint to handle millions of records without the performance degradation of `OFFSET`.
-* **Observability:** Integrate OpenTelemetry for distributed tracing and Prometheus/Grafana dashboards to monitor queue lag and worker utilization.
-* **Rate Limiting:** Add a plug-based rate limiter to the API to prevent ingestion spikes from overwhelming the database.
-* **Dynamic Retries:** Implement a backoff strategy where retries are delayed exponentially based on the task type or priority.
-* **DB Locks with Intelligent Rescheduling:** For inter-dependent jobs, implement explicit database locks to ensure retries are utilized effectively. If a job fails due to a lock, it would be rescheduled with exponential backoff (e.g., 2s, 4s, 8s).
+
+* **Advanced Pagination:** Keyset (cursor-based) pagination for `GET /api/tasks` to avoid OFFSET degradation with millions of rows.
+* **Observability:** OpenTelemetry distributed tracing with Prometheus/Grafana dashboards monitoring queue lag and worker utilization.
+* **Rate Limiting:** Plug-based API rate limiter to prevent ingestion spikes overwhelming the database.
+* **Dynamic Retries:** Exponential retry backoff depending on task type or priority.
+* **DB Locks with Intelligent Rescheduling:** Explicit locking for interdependent jobs with exponential retry rescheduling (e.g., 2s → 4s → 8s).
