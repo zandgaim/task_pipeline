@@ -1,8 +1,7 @@
 defmodule TaskPipeline.Metrics.SummaryCache do
   use GenServer
-  import Ecto.Query
 
-  alias TaskPipeline.Repo
+  alias TaskPipeline.Tasks
 
   @table :task_summary_metrics
   @cache_key :counts
@@ -38,7 +37,7 @@ defmodule TaskPipeline.Metrics.SummaryCache do
   @impl true
   def handle_info(:refresh_from_db, _state) do
     counts =
-      calculate_counts_from_db()
+      Tasks.calculate_counts_from_db()
       |> Map.merge(empty_counts())
 
     :ets.insert(@table, {@cache_key, counts})
@@ -100,17 +99,6 @@ defmodule TaskPipeline.Metrics.SummaryCache do
 
   defp update_ets(counts) do
     :ets.insert(@table, {@cache_key, counts})
-  end
-
-  ## ---------- Counting ----------
-
-  defp calculate_counts_from_db do
-    TaskPipeline.Tasks.Task
-    |> group_by([t], t.status)
-    |> select([t], {t.status, count(t.id)})
-    |> Repo.all()
-    |> Map.new(fn {k, v} -> {to_string(k), v} end)
-    |> Map.merge(empty_counts())
   end
 
   ## ---------- Counters ----------

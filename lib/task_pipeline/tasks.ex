@@ -109,4 +109,12 @@ defmodule TaskPipeline.Tasks do
     |> Ecto.Changeset.change(status: next_status)
     |> Repo.update()
   end
+
+  def calculate_counts_from_db do
+    TaskPipeline.Tasks.Task
+    |> group_by([t], t.status)
+    |> select([t], {t.status, count(t.id)})
+    |> Repo.all()
+    |> Map.new(fn {k, v} -> {to_string(k), v} end)
+  end
 end
