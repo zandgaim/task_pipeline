@@ -34,7 +34,7 @@ defmodule TaskPipeline.Workers.TaskWorkerTest do
         assert :ok = perform_job(TaskWorker, job.args, attempt: 1, max_attempts: job.max_attempts)
       end)
 
-      task = Repo.get!(Task, task.id) |> Repo.preload(:attempts)
+      task = Repo.get!(Task, task.id)
 
       assert task.status == :completed
       assert Enum.any?(task.attempts, &(&1.result == "success"))

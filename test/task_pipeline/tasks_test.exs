@@ -3,7 +3,6 @@ defmodule TaskPipeline.Tasks.TasksTest do
 
   alias TaskPipeline.{Repo, Tasks}
   alias TaskPipeline.Tasks.Task
-  alias TaskPipeline.Metrics.SummaryCache
 
   defp task_fixture(attrs \\ %{}) do
     default = %{
@@ -27,7 +26,7 @@ defmodule TaskPipeline.Tasks.TasksTest do
 
       task = task_fixture()
 
-      assert {:ok, loaded} = Tasks.get_task(task.id)
+      assert {:ok, _loaded} = Tasks.get_task(task.id)
     end
   end
 
