@@ -26,8 +26,6 @@ defmodule TaskPipeline.Tasks.Task do
     field :max_attempts, :integer, default: 3
     field :status, Ecto.Enum, values: @status_enum, default: :queued
 
-    has_many :attempts, TaskPipeline.Tasks.TaskAttempt
-
     timestamps()
   end
 

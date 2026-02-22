@@ -27,14 +27,5 @@ defmodule TaskPipeline.Repo.Migrations.AddTasksAndAttempts do
     # Індекси для оптимізації [cite: 75]
     create index(:tasks, [:status])
     create index(:tasks, [:priority, :inserted_at])
-
-    create table(:task_attempts) do
-      add :result, :text, null: false
-      add :task_id, references(:tasks, on_delete: :delete_all), null: false
-
-      timestamps(updated_at: false)
-    end
-
-    create index(:task_attempts, [:task_id])
   end
 end

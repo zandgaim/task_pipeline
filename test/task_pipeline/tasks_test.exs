@@ -2,7 +2,8 @@ defmodule TaskPipeline.Tasks.TasksTest do
   use TaskPipeline.DataCase, async: false
 
   alias TaskPipeline.{Repo, Tasks}
-  alias TaskPipeline.Tasks.{Task, TaskAttempt}
+  alias TaskPipeline.Tasks.Task
+  alias TaskPipeline.Metrics.SummaryCache
 
   defp task_fixture(attrs \\ %{}) do
     default = %{
@@ -25,13 +26,8 @@ defmodule TaskPipeline.Tasks.TasksTest do
       assert {:error, :not_found} = Tasks.get_task(-1)
 
       task = task_fixture()
-      # insert an attempt
-      %TaskAttempt{}
-      |> TaskAttempt.changeset(%{task_id: task.id, result: "ok"})
-      |> Repo.insert!()
 
       assert {:ok, loaded} = Tasks.get_task(task.id)
-      assert length(loaded.attempts) == 1
     end
   end
 
@@ -77,36 +73,20 @@ defmodule TaskPipeline.Tasks.TasksTest do
 
       reloaded = Repo.get(Task, task.id)
       assert reloaded.status == :completed
-
-      attempts =
-        Repo.all(
-          from a in TaskAttempt, where: a.task_id == ^task.id, order_by: [asc: a.inserted_at]
-        )
-
-      assert length(attempts) == 1
-      assert Enum.at(attempts, 0).result == "success"
     end
 
     test "marks failed when attempts exhausted and queues otherwise" do
       task = task_fixture(%{status: :processing, max_attempts: 2})
 
       # first failure (current_attempt < max_attempts) -> requeueTaskController
-      Tasks.mark_task_failed(task, 1, "err1")
+      Tasks.mark_task_failed(task, 1)
       t1 = Repo.get(Task, task.id)
       assert t1.status == :queued
 
-      attempts = Repo.all(from a in TaskAttempt, where: a.task_id == ^task.id)
-      assert length(attempts) == 1
-      assert Enum.at(attempts, 0).result == "err1"
-
       # second failure (current_attempt >= max_attempts) -> failed
-      Tasks.mark_task_failed(t1, 2, "err2")
+      Tasks.mark_task_failed(t1, 2)
       t2 = Repo.get(Task, task.id)
       assert t2.status == :failed
-
-      attempts = Repo.all(from a in TaskAttempt, where: a.task_id == ^task.id)
-      assert length(attempts) == 2
-      assert Enum.map(attempts, & &1.result) == ["err1", "err2"]
     end
   end
 end

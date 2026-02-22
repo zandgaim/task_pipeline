@@ -1,7 +1,7 @@
 defmodule TaskPipeline.Tasks do
   import Ecto.Query
   alias TaskPipeline.Repo
-  alias TaskPipeline.Tasks.{Task, TaskAttempt}
+  alias TaskPipeline.Tasks.Task
   alias TaskPipeline.Workers.TaskWorker
 
   def create_task(attrs) do
@@ -10,6 +10,7 @@ defmodule TaskPipeline.Tasks do
     |> Ecto.Multi.insert(:oban_job, fn %{task: task} ->
       %{task_id: task.id}
       |> TaskWorker.new(
+        queue: task.priority,
         max_attempts: task.max_attempts,
         priority: oban_priority(task.priority)
       )
@@ -24,7 +25,7 @@ defmodule TaskPipeline.Tasks do
   def get_task(id) do
     case Repo.get(Task, id) do
       nil -> {:error, :not_found}
-      task -> {:ok, Repo.preload(task, :attempts)}
+      task -> {:ok, task}
     end
   end
 
@@ -98,22 +99,14 @@ defmodule TaskPipeline.Tasks do
   def mark_task_completed(task) do
     Ecto.Multi.new()
     |> Ecto.Multi.update(:task, Ecto.Changeset.change(task, status: :completed))
-    |> Ecto.Multi.insert(
-      :attempt,
-      TaskAttempt.changeset(%TaskAttempt{}, %{task_id: task.id, result: "success"})
-    )
     |> Repo.transaction()
   end
 
-  def mark_task_failed(task, current_attempt, error_msg) do
+  def mark_task_failed(task, current_attempt) do
     next_status = if current_attempt >= task.max_attempts, do: :failed, else: :queued
 
     Ecto.Multi.new()
     |> Ecto.Multi.update(:task, Ecto.Changeset.change(task, status: next_status))
-    |> Ecto.Multi.insert(
-      :attempt,
-      TaskAttempt.changeset(%TaskAttempt{}, %{task_id: task.id, result: error_msg})
-    )
     |> Repo.transaction()
   end
 end
